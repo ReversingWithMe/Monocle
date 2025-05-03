@@ -99,7 +99,7 @@ save_all_functions_to_files()
     def _construct_ghidra_headless_command(self, binary_path, script_path, binary_hash,
                                            ghidra_project_dir=Path.cwd().name):
 
-        binary_name = "analyzeHeadless.bat"
+        binary_name = "analyzeHeadless"
 
         # Check if the binary is on the PATH
         headless = shutil.which(binary_name)

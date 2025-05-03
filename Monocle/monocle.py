@@ -8,7 +8,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.progress import Progress
 from rich.table import Table
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+# from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from openai import OpenAI
 from Monocle.GhidraBridge.ghidra_bridge import GhidraBridge
 
 class Monocle:
@@ -24,6 +25,7 @@ class Monocle:
             model (transformers.PreTrainedModel): Loaded language model.
             tokenizer (transformers.PreTrainedTokenizer): Loaded tokenizer.
         """
+        """
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,
@@ -33,6 +35,8 @@ class Monocle:
         model = AutoModelForCausalLM.from_pretrained("unsloth/mistral-7b-instruct-v0.2-bnb-4bit", quantization_config=quantization_config)
         tokenizer = AutoTokenizer.from_pretrained("unsloth/mistral-7b-instruct-v0.2-bnb-4bit", padding_side="left")
         return model, tokenizer
+        """
+        pass
     
     def _get_code_from_decom_file(self, path_to_file):
         """
@@ -69,7 +73,7 @@ class Monocle:
 
         return list_of_decom_files
         
-    def _generate_dialogue_response(self, model, tokenizer, device, messages):
+    def _generate_dialogue_response(self, messages):
         """
         Generate response from the language model given the input messages.
 
@@ -82,11 +86,24 @@ class Monocle:
         Returns:
             str: Generated response.
         """
+        """
         encodeds = tokenizer.apply_chat_template(messages, return_tensors="pt")
         model_inputs = encodeds.to(device)
         generated_ids = model.generate(model_inputs, max_new_tokens=200, do_sample=False, pad_token_id=50256)
         decoded = tokenizer.batch_decode(generated_ids, skip_special_tokens=False)
         return decoded[0]
+        """
+
+        # Point to the local server
+        client = OpenAI(base_url="http://localhost:1234/v1", api_key="lm-studio")
+
+        completion = client.chat.completions.create(
+        model="MaziyarPanahi/Llama-3-8B-Instruct-32k-v0.1-GGUF",
+        messages=messages,
+        temperature=0.7,
+        )
+
+        return completion.choices[0].message.content
 
     def _generate_table_row(self, binary_name="", function_name="", score=0, explanation=0):
         """
@@ -167,9 +184,6 @@ class Monocle:
         """
         args = self._get_args()
         console = Console()
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model_name = "mistralai/Mistral-7B-Instruct-v0.1"
-        model, tokenizer = self._load_model(model_name, device)
         console.clear()
         
         list_of_decom_files = []
@@ -191,15 +205,18 @@ class Monocle:
 
                     question = f"You have been asked to review C decompiled code from Ghidra and identify the following '{args.find}'. Return a score between 0 and 10, where 0 means there is no indication, 1 to 2 means there is something related, 3 to 4 means there is a degree of evidence, 5 to 6 means that there is more evidence, and 7 to 10 means there is significant evidence. You should be certain that the code meets these scores. Format your response as a single number score, followed my a new line, followed by your explanation. \n Code: \n {code.strip()}"
                     
-                    result = self._generate_dialogue_response(model, tokenizer, device, [{"role": "user", "content": question}])
+                    result = self._generate_dialogue_response([{"role": "user", "content": question}])
                     result = self._remove_inst_tags(result)
 
                     ans_number, *explanation = result.split("\n")
                     explanation = "".join(explanation)
 
-                    if int(ans_number) == 0:
-                        explanation = ""
-
+                    try:
+                        if int(ans_number) == 0:
+                            explanation = ""
+                    except ValueError:
+                        print(f'Skipping {function_name}, using too weak of a model or issue with this function.')
+                        continue
                     rows.append(self._generate_table_row(binary_name=binary_name, function_name=function_name, score=ans_number, explanation=explanation))
 
                     for row_dict in rows:
